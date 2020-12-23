@@ -30,6 +30,7 @@
            , DeriveFunctor
            , DeriveDataTypeable
            , InstanceSigs
+           , NumDecimals
 #-}
 
 import Control.Arrow hiding ((+++), first, second)
@@ -60,6 +61,7 @@ import Data.Map qualified as M
 import Data.Maybe
 import Data.Ord
 import Data.Profunctor
+import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 import Data.Set qualified as Set
 import Data.Vector (Vector)
@@ -68,7 +70,7 @@ import Debug.Trace
 import GHC.Generics (Generic)
 import GHC.Arr qualified (unsafeIndex, unsafeRangeSize)
 import GHC.Stack
-import Text.Read hiding (step, parens)
+import Text.Read hiding (step, parens, get)
 import Data.Word
 import Data.Bits
 import Data.Bits.Lens
@@ -79,35 +81,44 @@ import Control.Monad.Combinators.Expr
 -- import Text.Megaparsec.Char.Lexer qualified as L
 -- import Text.Megaparsec
 import Data.Void
-
-newtype Ingredient = Ingredient String deriving (Show, Eq, Ord)
-newtype Allergen = Allergen String deriving (Show, Eq, Ord)
-
-type Food = (Set.Set Ingredient, Set.Set Allergen)
-type Candidates = Map Allergen (Either Ingredient (Set.Set Ingredient))
-
-parse :: String -> Food
-parse = bimap Set.fromList Set.fromList .
-  coerce . second (map init . tail) . span (('(' /=) . head) . words
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
+import Safe.Foldable
 
 main :: IO ()
 main = do
-  foods <- map parse . lines <$> readFile "input"
-  let candidates alrg = foldr1 Set.intersection . map fst $
-        filter (Set.member alrg . snd) foods
-      allAlrg = foldMap snd foods
-      allIngr = foldMap fst foods
-      nonAlrg = allIngr Set.\\ foldMap candidates allAlrg
-      candidateMap :: Candidates
-      candidateMap = M.fromList . map (\a -> (a, Right $ candidates a)) $ toList allAlrg
-      extractSingle :: Candidates -> Ingredient
-      extractSingle = head . fromRight [] . fmap toList . head . toList .
-        M.filter (either (const False) ((== 1) . Set.size))
-      removeSingle :: Candidates -> Candidates
-      removeSingle cmap = let single = extractSingle cmap in
-        fmap ?? cmap $ (=<<) \case
-          (toList -> [ingrd]) | ingrd == single -> Left single
-          ingrds -> Right $ Set.filter (/= single) ingrds
-      algrMap = until (all isLeft) removeSingle candidateMap
-  print . sum . map (Set.size . Set.filter (`Set.member` nonAlrg) . fst) $ foods
-  putStrLn . intercalate "," . map (^?! _2 . _Left . to coerce) $ M.toAscList algrMap
+  input <- map (read @Int . pure) . init <$> readFile "input"
+  putStrLn . map intToDigit . concat . reverse . splitOn [1] $ applyN 100 step1 input
+  let million = Seq.fromList . take 1e6 $ input <> tail [maximum input..]
+  -- print . extractProduct $ applyN 1e2 (step2 1e6) million
+  pure ()
+  print $ applyN 100 step1 input
+
+extractProduct :: Seq Int -> Int
+extractProduct seq = let (l, r) = Seq.splitAt (fromJust (Seq.elemIndexL 1 seq) + 1) seq in
+  product . Seq.take 2 $ r <> l
+
+applyN :: Int -> (a -> a) -> a -> a
+applyN 0 _ x = x
+applyN n f x = let r = f $! applyN (n - 1) f x in
+  bool r (traceShow n r) (n `mod` 1e5 == 0)
+
+-- old inefficient implementation
+step1 :: [Int] -> [Int]
+step1 (current :< (splitAt 3 -> (dropped, rest))) = new
+  where
+    dest = fromMaybe (maximum rest) . maximumMay $ filter (< current) rest
+    [l, r] = split (keepDelimsR $ oneOf [dest]) rest
+    new = l <> dropped <> r <> [current]
+
+step2 :: Int -> Seq Int -> Seq Int
+step2 maxC (current :< (Seq.splitAt 3 -> (dropped, rest))) = new
+  where
+    destIndex = targetIndex current maxC dropped rest
+    (l, r) = Seq.splitAt (destIndex + 1) rest
+    new = l <> dropped <> r <> Seq.singleton current
+
+targetIndex :: Int -> Int -> Seq Int -> Seq Int -> Int
+targetIndex cur maxC dropped cs = let target = ((cur - 2) `mod` maxC) + 1
+  in if | target `elem` dropped -> targetIndex target maxC dropped cs
+        | otherwise             -> fromJust $ Seq.elemIndexL target cs

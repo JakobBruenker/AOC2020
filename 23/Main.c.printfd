@@ -1,0 +1,100 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define LENGTH 9
+#define STEPS 100
+#define min(x, y) (x < y ? x : y)
+#define max(x, y) (x > y ? x : y)
+#define intcpy(dst, src, sz) (memcpy(dst, src, max(0, sz) * sizeof(int)))
+
+int* cups;
+int dropped[3];
+
+int findIndex(int target) {
+    for (int i = 0; i < LENGTH; i++) {
+        if (cups[i] == target) return i;
+    }
+}
+
+int targetIndex(int cur) {
+    int target = ((cur - 2 + LENGTH) % LENGTH) + 1;
+    return (dropped[0] == target || dropped[1] == target || dropped[2] == target) ?
+        targetIndex(target) : findIndex(target);
+}
+
+int main() {
+    /* int initial[] = {3,8,9,1,2,5,4,6,7}; // Test input */
+    int initial[] = {1,3,7,8,2,6,4,9,5};
+    cups = calloc(LENGTH, sizeof(int)); // allocate a bit extra to simplify copying
+    int inputLength = sizeof(initial)/sizeof(initial[0]);
+    intcpy(cups, initial, inputLength);
+    for (int i = inputLength; i < LENGTH; i++) {
+        cups[i] = i + 1;
+    }
+    // Before the crab starts, it will designate the first cup in your list as
+    // the current cup.
+    int current = 0;
+    int target;
+    for (int step = 0; step < STEPS; step++) {
+        printf("\n1: ");
+        for (int i = 0; i < LENGTH; i++) {
+            printf("%d,", cups[i]);
+        }
+        // The crab picks up the three cups that are immediately clockwise of
+        // the current cup.
+        for (int i = 0; i < 3; i++) {
+            dropped[i] = cups[(current + i + 1 + LENGTH) % LENGTH];
+        }
+        // immediately clockwise of the destination cup.
+        // The crab selects a destination cup.
+        target = targetIndex(cups[current]);
+        printf("\ntarget: %d (%d)", target, cups[target]);
+        printf("\ncurrent: %d (%d)", current, cups[current]);
+        printf("\ndropped: ");
+        for (int i = 0; i < 3; i++) {
+            printf("%d, ", dropped[i]);
+        }
+        // They are removed from the circle; cup spacing is adjusted as
+        // necessary to maintain the circle.
+        if (current < target) {
+            intcpy(cups + current + 1, cups + current + 4, target - current - 3);
+        } else {
+            intcpy(cups + current + 1, cups + current + 4, LENGTH - current - 4);
+        printf("\n2: ");
+        for (int i = 0; i < LENGTH; i++) {
+            printf("%d,", cups[i]);
+        }
+            int fromEnd = min(LENGTH - current - 1, 3);
+            int fromBeginning = max(0, current - (LENGTH - 4));
+            intcpy(cups + LENGTH - fromEnd, cups + fromBeginning, fromEnd);
+        printf("\n3: ");
+        for (int i = 0; i < LENGTH; i++) {
+            printf("%d,", cups[i]);
+        }
+            intcpy(cups, cups + 3, target - 2);
+        printf("\n4: ");
+        for (int i = 0; i < LENGTH; i++) {
+            printf("%d,", cups[i]);
+        }
+        }
+        // The crab places the cups it just picked up so that they are
+        // immediately clockwise of the destination cup.
+        for (int i = 0; i < 3; i++) {
+            printf("\nindex: %d (%d)", target + i - 2, (target + i - 2 + LENGTH) % LENGTH);
+            cups[(target + i - 2 + LENGTH) % LENGTH] = dropped[i];
+        }
+        // The crab selects a new current cup: the cup which is immediately
+        // clockwise of the current cup.
+        current = (current + 1 + LENGTH) % LENGTH;
+    }
+    printf("\nend: ");
+    for (int i = 0; i < LENGTH; i++) {
+        printf("%d,", cups[i]);
+    }
+    printf("\n");
+    for (int i = 0; i < 3; i++) {
+        printf("%d,", dropped[i]);
+    }
+    free(cups);
+}

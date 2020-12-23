@@ -68,7 +68,7 @@ import Debug.Trace
 import GHC.Generics (Generic)
 import GHC.Arr qualified (unsafeIndex, unsafeRangeSize)
 import GHC.Stack
-import Text.Read hiding (step, parens)
+import Text.Read hiding (step, parens, get)
 import Data.Word
 import Data.Bits
 import Data.Bits.Lens
@@ -79,35 +79,62 @@ import Control.Monad.Combinators.Expr
 -- import Text.Megaparsec.Char.Lexer qualified as L
 -- import Text.Megaparsec
 import Data.Void
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except
 
-newtype Ingredient = Ingredient String deriving (Show, Eq, Ord)
-newtype Allergen = Allergen String deriving (Show, Eq, Ord)
-
-type Food = (Set.Set Ingredient, Set.Set Allergen)
-type Candidates = Map Allergen (Either Ingredient (Set.Set Ingredient))
-
-parse :: String -> Food
-parse = bimap Set.fromList Set.fromList .
-  coerce . second (map init . tail) . span (('(' /=) . head) . words
+type Deck = Seq.Seq Int
+data Winner = P1 | P2 deriving (Eq, Show)
+data Game = Game { states :: Set.Set (Deck, Deck) 
+                 , players :: (Deck, Deck)
+                 } deriving (Generic, Show)
 
 main :: IO ()
 main = do
-  foods <- map parse . lines <$> readFile "input"
-  let candidates alrg = foldr1 Set.intersection . map fst $
-        filter (Set.member alrg . snd) foods
-      allAlrg = foldMap snd foods
-      allIngr = foldMap fst foods
-      nonAlrg = allIngr Set.\\ foldMap candidates allAlrg
-      candidateMap :: Candidates
-      candidateMap = M.fromList . map (\a -> (a, Right $ candidates a)) $ toList allAlrg
-      extractSingle :: Candidates -> Ingredient
-      extractSingle = head . fromRight [] . fmap toList . head . toList .
-        M.filter (either (const False) ((== 1) . Set.size))
-      removeSingle :: Candidates -> Candidates
-      removeSingle cmap = let single = extractSingle cmap in
-        fmap ?? cmap $ (=<<) \case
-          (toList -> [ingrd]) | ingrd == single -> Left single
-          ingrds -> Right $ Set.filter (/= single) ingrds
-      algrMap = until (all isLeft) removeSingle candidateMap
-  print . sum . map (Set.size . Set.filter (`Set.member` nonAlrg) . fst) $ foods
-  putStrLn . intercalate "," . map (^?! _2 . _Left . to coerce) $ M.toAscList algrMap
+  [deck1, deck2] <- map (Seq.fromList . map (read @Int) . tail . lines) . splitOn "\n\n"
+    <$> readFile "input"
+  let run p = print . score . snd $ evalState p (Game Empty (deck1, deck2))
+  run play1
+  run play2
+
+score :: Deck -> Int
+score = sum . zipWith (*) [1..] . reverse . toList
+
+play :: MaybeT (State Game) (Winner, Deck) -> State Game (Winner, Deck)
+play turn = maybe (play turn) pure =<< runMaybeT turn
+
+play1 :: State Game (Winner, Deck)
+play1 = play turn1
+
+play2 :: State Game (Winner, Deck)
+play2 = play turn2
+
+winDecks :: ((Int, Deck), (Int, Deck)) -> Bool -> (Deck, Deck)
+winDecks ((c1, d1), (c2, d2)) = bool (d1, d2 |> c2 |> c1) (d1 |> c1 |> c2, d2)
+
+turn1 :: MaybeT (State Game) (Winner, Deck)
+turn1 = zoom #players $ get >>= \case
+  (p1, p2) | Empty <- p1 -> pure (P2, p2)
+           | Empty <- p2 -> pure (P1, p1)
+           | c1 :< d1 <- p1
+           , c2 :< d2 <- p2 -> do put $ winDecks ((c1, d1), (c2, d2)) (c1 > c2)
+                                  empty
+
+turn2 :: MaybeT (State Game) (Winner, Deck)
+turn2 = do
+  Game ss ps <- get
+  if | ps `Set.member` ss -> pure (P1, fst ps)
+     | otherwise -> do
+       #states %= Set.insert ps
+       case ps of
+         (p1, p2) | Empty <- p1 -> pure (P2, p2)
+                  | Empty <- p2 -> pure (P1, p1)
+                  | c1 :< d1 <- p1
+                  , c2 :< d2 <- p2 -> do
+                    let d1' = Seq.take c1 d1
+                        d2' = Seq.take c2 d2
+                        wd = winDecks ((c1, d1), (c2, d2))
+                    #players .= if
+                      | c1 > length d1' || c2 > length d2' -> wd $ c1 > c2
+                      | otherwise -> let (w, _) = evalState play2 (Game Empty (d1', d2'))
+                                     in wd $ w == P1
+                    empty
