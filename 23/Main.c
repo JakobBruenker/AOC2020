@@ -4,12 +4,23 @@
 
 /* #define LENGTH 9 */
 /* #define STEPS 100 */
-#define LENGTH 1000000
-/* #define STEPS 10000000 */
+/* #define LENGTH 1000000 */
+#define STEPS 10000000
 #define STEPS 100000
 #define min(x, y) (x < y ? x : y)
 #define max(x, y) (x > y ? x : y)
 #define intcpy(dst, src, sz) (memcpy(dst, src, max(0, sz) * sizeof(int)))
+
+// update: just read a line of the first post on the solution thread on reddit
+// and it makes a lot of sense: for each element, keep a pointer to the
+// previous element. This whole time I was thinking that maybe I missed some
+// smart way to shortcut the algorithm but this makes more sense.
+// (I'm not sure right now how you would properly update the pointer but I
+// guess it shouldn't be that hard)
+// And I guess some sort of linked list might make more sense than an array
+// I think the only reason I'm using an array is because it's the simplest data
+// structure to use in C, and I'm using C because it's the easiest language to
+// write fast code in for simple problems
 
 int* cups;
 int dropped[3];
